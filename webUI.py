@@ -8,7 +8,7 @@ import numpy as np
 import soundfile
 from inference.infer_tool import Svc
 import logging
-import torch
+import webbrowser
 
 logging.getLogger('numba').setLevel(logging.WARNING)
 logging.getLogger('markdown_it').setLevel(logging.WARNING)
@@ -18,10 +18,6 @@ logging.getLogger('multipart').setLevel(logging.WARNING)
 
 model = None
 spk = None
-cuda = []
-if torch.cuda.is_available():
-    for i in range(torch.cuda.device_count()):
-        cuda.append("cuda:{}".format(i))
 
 def vc_fn(sid, input_audio, vc_transform, auto_f0,cluster_ratio, slice_db, noise_scale,pad_seconds,cl_num,lg_num,lgr_num):
     global model
@@ -36,7 +32,7 @@ def vc_fn(sid, input_audio, vc_transform, auto_f0,cluster_ratio, slice_db, noise
         if len(audio.shape) > 1:
             audio = librosa.to_mono(audio.transpose(1, 0))
         temp_path = "temp.wav"
-        soundfile.write(temp_path, audio, sampling_rate, format="wav")
+        soundfile.write(temp_path, audio, model.target_sample, format="wav")
         _audio = model.slice_inference(temp_path, sid, vc_transform, slice_db, cluster_ratio, auto_f0, noise_scale,pad_seconds,cl_num,lg_num,lgr_num)
         model.clear_empty()
         os.remove(temp_path)
@@ -64,7 +60,7 @@ with app:
                 <font size=3>下面是聚类模型文件选择，没有可以不填：</font>
                 """)
             cluster_model_path = gr.File(label="聚类模型文件")
-            device = gr.Dropdown(label="推理设备，默认为自动选择cpu和gpu",choices=["Auto",*cuda,"cpu"],value="Auto")
+            device = gr.Dropdown(label="推理设备，留白则为自动选择cpu和gpu",choices=[None,"cuda","cpu"],value=None)
             gr.Markdown(value="""
                 <font size=3>全部上传完毕后(全部文件模块显示download),点击模型解析进行解析：</font>
                 """)
@@ -87,14 +83,14 @@ with app:
             def modelAnalysis(model_path,config_path,cluster_model_path,device):
                 try:
                     global model
-                    model = Svc(model_path.name, config_path.name,device=device if device!="Auto" else None,cluster_model_path= cluster_model_path.name if cluster_model_path!=None else "")
+                    model = Svc(model_path.name, config_path.name,device=device if device!="" else None,cluster_model_path= cluster_model_path.name if cluster_model_path!=None else "")
                     spks = list(model.spk2id.keys())
-                    device_name = torch.cuda.get_device_properties(model.dev).name if "cuda" in str(model.dev) else str(model.dev)
-                    return sid.update(choices = spks,value=spks[0]),"ok,模型被加载到了设备{}之上".format(device_name)
+                    return sid.update(choices = spks,value=spks[0]),"ok"
                 except Exception as e:
                     return "","异常信息:"+str(e)+"\n请排障后重试"
         vc_submit.click(vc_fn, [sid, vc_input3, vc_transform,auto_f0,cluster_ratio, slice_db, noise_scale,pad_seconds,cl_num,lg_num,lgr_num], [vc_output1, vc_output2])
         model_analysis_button.click(modelAnalysis,[model_path,config_path,cluster_model_path,device],[sid,sid_output])
+    webbrowser.open("http://127.0.0.1:7860")
     app.launch()
 
 

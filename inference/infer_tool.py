@@ -107,6 +107,8 @@ def split_list_by_n(list_collection, n, pre=0):
     for i in range(0, len(list_collection), n):
         yield list_collection[i-pre if i-pre>=0 else i: i + n]
 
+class MyException(Exception):
+    pass
 
 class Svc(object):
     def __init__(self, net_g_path, config_path,
@@ -142,11 +144,13 @@ class Svc(object):
 
 
 
-    def get_unit_f0(self, in_path, tran, cluster_infer_ratio, speaker):
-
+    def get_unit_f0(self, in_path, tran, cluster_infer_ratio, speaker, f0_filter):
         wav, sr = librosa.load(in_path, sr=self.target_sample)
 
         f0 = utils.compute_f0_parselmouth(wav, sampling_rate=self.target_sample, hop_length=self.hop_size)
+
+        if f0_filter and sum(f0) == 0:
+            raise MyException("未检测到人声")
         f0, uv = utils.interpolate_f0(f0)
         f0 = torch.FloatTensor(f0)
         uv = torch.FloatTensor(uv)
@@ -170,13 +174,18 @@ class Svc(object):
     def infer(self, speaker, tran, raw_path,
               cluster_infer_ratio=0,
               auto_predict_f0=False,
-              noice_scale=0.4):
+              noice_scale=0.4,
+              f0_filter=False):
         speaker_id = self.spk2id.__dict__.get(speaker)
         if not speaker_id and type(speaker) is int:
             if len(self.spk2id.__dict__) >= speaker:
                 speaker_id = speaker
+        spk_dict = self.hps_ms.spk
+        speaker = list(spk_dict.keys())[list(spk_dict.values()).index(speaker_id)]
+
         sid = torch.LongTensor([int(speaker_id)]).to(self.dev).unsqueeze(0)
-        c, f0, uv = self.get_unit_f0(raw_path, tran, cluster_infer_ratio, speaker)
+        f0_filter = f0_filter
+        c, f0, uv = self.get_unit_f0(raw_path, tran, cluster_infer_ratio, speaker, f0_filter)
         if "half" in self.net_g_path and torch.cuda.is_available():
             c = c.half()
         with torch.no_grad():
